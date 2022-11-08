@@ -1,0 +1,11 @@
+black==22.6.0
+checkdeps==0.0.2
+coverage==6.4.3
+flake8==5.0.4
+mypy==0.971
+tox==3.25.1
+twine==4.0.1
+ufmt==2.0.0
+usort==1.0.4
+volatile==2.1.0
+wheel==0.37.1
