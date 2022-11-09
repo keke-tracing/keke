@@ -39,8 +39,9 @@ class TraceOutput:
         # https://groups.google.com/g/perfetto-dev/c/zOe_Y2FxGGk
         thread_sortkeys: Dict[str, int] = {
             "MainThread": -1,
-            "ThreadPoolExecutor": 1,
-            "Closer": 2,
+            "Opener": 1,
+            "ThreadPoolExecutor": 2,
+            "Closer": 3,
         },
         pid: Optional[int] = None,
         clock: Optional[Callable[[], float]] = None,
