@@ -57,6 +57,12 @@ can open a unique file with its pid.
 If you're doing something more distributed, you might come up with a guid and
 pass that to the child instead, for the child to tag it for later log uploading.
 
+# What's with the name
+
+I was trying to come up with a short, memorable name and some of the rendered
+trace points were very pointy, which reminded me of the "bouba/kiki effect."
+The name "kiki" was taken but "keke" was not.
+
 # License
 
 keke is copyright [Tim Hatch](https://timhatch.com/), and licensed under
