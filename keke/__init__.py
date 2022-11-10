@@ -46,9 +46,10 @@ class TraceOutput:
         pid: Optional[int] = None,
         clock: Optional[Callable[[], float]] = None,
     ) -> None:
-        # Ensure we get an early, main-thread error if opened in binary mode or
-        # not for writing.
-        file.write("")  # if this raises, check your file mode
+        if file is not None:
+            # Ensure we get an early, main-thread error if opened in binary mode or
+            # not for writing.
+            file.write("")  # if this raises, check your file mode
 
         self.output = file
         self.queue: "SimpleQueue[Optional[Dict[Any, Any]]]" = SimpleQueue()
@@ -201,6 +202,7 @@ def kmark(name: str, cat: str = "mark", scope: str = Scope.THREAD) -> None:
 
 @contextmanager
 def kev(name: str, cat: str = "dur", **kwargs: Any) -> Generator[None, None, None]:
+    enabled = False
     t = get_tracer()
     if t is not None:
         enabled = True
