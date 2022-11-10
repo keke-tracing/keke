@@ -78,6 +78,7 @@ class TraceOutput:
         obj["tid"] = id
 
         if id not in self._thread_name_output:
+            self._thread_name_output.add(id)
             n = 0  # TODO rethink?
             if name is None:
                 name = threading.current_thread().name
