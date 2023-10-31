@@ -12,8 +12,10 @@ import os
 import threading
 import time
 from contextlib import contextmanager
+from functools import wraps
+from inspect import signature
 from queue import SimpleQueue
-from typing import Any, Callable, Dict, Generator, IO, Optional, Set
+from typing import Any, Callable, Dict, Generator, IO, Optional, Set, Union
 
 TRACER: "Optional[TraceOutput]" = None
 
@@ -226,6 +228,45 @@ def kev(name: str, cat: str = "dur", **kwargs: Any) -> Generator[None, None, Non
             t.put(ev, True)
 
 
+def ktrace(*trace_args: str, shortname: Union[str, bool] = False) -> Any:
+    if trace_args and callable(trace_args[0]):
+        raise TypeError(
+            "This is a decorator that always takes args, to avoid confusion. Use empty parens."
+        )
+
+    def inner(func: Any) -> Callable[..., Any]:
+        sig = signature(func)
+        if isinstance(shortname, str):
+            name = shortname
+        elif shortname:
+            name = func.__name__
+        else:
+            name = func.__qualname__
+
+        @wraps(func)
+        def dec(*args: Any, **kwargs: Any) -> Any:
+            t = get_tracer()
+            if t is None:
+                return func(*args, **kwargs)
+
+            bound = sig.bind(*args, **kwargs)
+            bound.apply_defaults()
+
+            def safe_get(x: str) -> str:
+                try:
+                    return str(eval(x, bound.arguments, bound.arguments))
+                except Exception as e:
+                    return repr(e)
+
+            params = {k: safe_get(k) for k in trace_args}
+            with kev(name, **params):
+                return func(*args, **kwargs)
+
+        return dec
+
+    return inner
+
+
 # Notably TRACER and TraceOutput are not here; most modules importing this don't
 # need them.  They are still public though.
-__all__ = ["kcount", "kmark", "kev"]
+__all__ = ["kcount", "kmark", "kev", "ktrace"]
