@@ -15,9 +15,21 @@ from contextlib import contextmanager
 from functools import wraps
 from inspect import signature
 from queue import SimpleQueue
-from typing import Any, Callable, Dict, Generator, IO, Optional, Set, Union
+from typing import (
+    Any,
+    Callable,
+    cast,
+    Dict,
+    Generator,
+    IO,
+    Optional,
+    Set,
+    TypeVar,
+    Union,
+)
 
 TRACER: "Optional[TraceOutput]" = None
+F = TypeVar("F", bound=Callable[..., Any])
 
 
 def get_tracer() -> "Optional[TraceOutput]":
@@ -47,6 +59,7 @@ class TraceOutput:
         },
         pid: Optional[int] = None,
         clock: Optional[Callable[[], float]] = None,
+        close_output_file: Optional[bool] = True,
     ) -> None:
         if file is not None:
             # Ensure we get an early, main-thread error if opened in binary mode or
@@ -54,6 +67,7 @@ class TraceOutput:
             file.write("")  # if this raises, check your file mode
 
         self.output = file
+        self.close_output_file = close_output_file
         self.queue: "SimpleQueue[Optional[Dict[Any, Any]]]" = SimpleQueue()
 
         # There are two good reasons for overriding the pid value -- one is in
@@ -132,7 +146,10 @@ class TraceOutput:
         self.queue.put(None)
         self._writer.join()
         self.output.write("{}]\n")
-        self.output.close()  # prevent accidental reuse that produces invalid json
+        if self.close_output_file:
+            # prevents accidental reuse that produces invalid json, but you can
+            # disable if it's e.g. a StringIO that you want to read back
+            self.output.close()
 
     def _gc_callback(self, phase: str, info: Dict[str, int]) -> None:
         # TODO We'd like to use begin/end async events, but those don't appear
@@ -228,13 +245,13 @@ def kev(name: str, cat: str = "dur", **kwargs: Any) -> Generator[None, None, Non
             t.put(ev, True)
 
 
-def ktrace(*trace_args: str, shortname: Union[str, bool] = False) -> Any:
+def ktrace(*trace_args: str, shortname: Union[str, bool] = False) -> Callable[[F], F]:
     if trace_args and callable(trace_args[0]):
         raise TypeError(
             "This is a decorator that always takes args, to avoid confusion. Use empty parens."
         )
 
-    def inner(func: Any) -> Callable[..., Any]:
+    def inner(func: F) -> F:
         sig = signature(func)
         if isinstance(shortname, str):
             name = shortname
@@ -262,7 +279,7 @@ def ktrace(*trace_args: str, shortname: Union[str, bool] = False) -> Any:
             with kev(name, **params):
                 return func(*args, **kwargs)
 
-        return dec
+        return cast(F, dec)
 
     return inner
 

@@ -121,3 +121,15 @@ class TraceOutputTest(unittest.TestCase):
         self.assertEqual("short", events[5]["name"])
         self.assertEqual("dur", events[5]["cat"])
         self.assertEqual({"a[0]": "foo"}, events[5]["args"])
+
+    def test_bytes_raises_early(self) -> None:
+        buf = io.BytesIO()
+        with self.assertRaises(TypeError):
+            TraceOutput(file=buf)  # type: ignore
+
+    def test_no_close_output_file(self) -> None:
+        buf = io.StringIO()
+        with TraceOutput(file=buf, close_output_file=False):
+            with kev("name_here", "cat_here", arg=1):
+                pass
+        json.loads(buf.getvalue())
