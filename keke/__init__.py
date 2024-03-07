@@ -95,7 +95,10 @@ class TraceOutput:
         intended for synthetic threads, like having GC appear as its own.
         """
         if id is None:
-            id = threading.get_native_id()
+            if hasattr(threading, "get_native_id"):
+                id = threading.get_native_id()
+            else:
+                id = threading.get_ident()
         obj["tid"] = id
 
         if id not in self._thread_name_output:
