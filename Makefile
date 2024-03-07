@@ -12,7 +12,7 @@ venv:
 
 .PHONY: setup
 setup:
-	python -m pip install -Ur requirements-dev.txt
+	python -m pip install -Ue .[dev,test]
 
 .PHONY: test
 test:
@@ -28,7 +28,7 @@ lint:
 	python -m ufmt check $(SOURCES)
 	python -m flake8 $(SOURCES)
 	python -m checkdeps --allow-names keke keke
-	mypy --strict keke
+	mypy --strict --install-types --non-interactive keke
 
 .PHONY: release
 release:

@@ -6,6 +6,11 @@ but making it easier to log higher-level information about what threads are
 doing.
 """
 
+try:
+    from ._version import __version__
+except ImportError:  # pragma: no cover
+    __version__ = "dev"
+
 import gc
 import json
 import os
