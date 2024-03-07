@@ -91,6 +91,8 @@ class TraceOutputTest(unittest.TestCase):
             self.assertEqual((["foo", "bar"], 1, 2), tracer(["foo", "bar"]))
 
         events = json.loads(f.getvalue())
+        # strip gc events
+        events = [e for e in events if e.get("name") != "collect"]
 
         # first call
         self.assertEqual(4, events[2]["pid"])
