@@ -91,36 +91,41 @@ class TraceOutputTest(unittest.TestCase):
             self.assertEqual((["foo", "bar"], 1, 2), tracer(["foo", "bar"]))
 
         events = json.loads(f.getvalue())
+        events = [
+            e
+            for e in events
+            if e.get("name") not in ("collect", "thread_name", "thread_sort_index")
+        ]
 
         # first call
-        self.assertEqual(4, events[2]["pid"])
+        self.assertEqual(4, events[0]["pid"])
         self.assertEqual(
-            "TraceOutputTest.test_ktrace_capture.<locals>.func", events[2]["name"]
+            "TraceOutputTest.test_ktrace_capture.<locals>.func", events[0]["name"]
         )
-        self.assertEqual("dur", events[2]["cat"])
-        self.assertEqual({"a[0]": "foo"}, events[2]["args"])
+        self.assertEqual("dur", events[0]["cat"])
+        self.assertEqual({"a[0]": "foo"}, events[0]["args"])
 
         # second call
-        self.assertEqual(4, events[3]["pid"])
+        self.assertEqual(4, events[1]["pid"])
         self.assertEqual(
-            "TraceOutputTest.test_ktrace_capture.<locals>.func", events[3]["name"]
+            "TraceOutputTest.test_ktrace_capture.<locals>.func", events[1]["name"]
         )
-        self.assertEqual("dur", events[3]["cat"])
+        self.assertEqual("dur", events[1]["cat"])
         self.assertEqual(
-            {"a[0]": "IndexError('list index out of range')"}, events[3]["args"]
+            {"a[0]": "IndexError('list index out of range')"}, events[1]["args"]
         )
 
         # third (short) call
-        self.assertEqual(4, events[4]["pid"])
-        self.assertEqual("func", events[4]["name"])
-        self.assertEqual("dur", events[4]["cat"])
-        self.assertEqual({"a[0]": "foo"}, events[4]["args"])
+        self.assertEqual(4, events[2]["pid"])
+        self.assertEqual("func", events[2]["name"])
+        self.assertEqual("dur", events[2]["cat"])
+        self.assertEqual({"a[0]": "foo"}, events[2]["args"])
 
         # fourth (custom name) call
-        self.assertEqual(4, events[5]["pid"])
-        self.assertEqual("short", events[5]["name"])
-        self.assertEqual("dur", events[5]["cat"])
-        self.assertEqual({"a[0]": "foo"}, events[5]["args"])
+        self.assertEqual(4, events[3]["pid"])
+        self.assertEqual("short", events[3]["name"])
+        self.assertEqual("dur", events[3]["cat"])
+        self.assertEqual({"a[0]": "foo"}, events[3]["args"])
 
     def test_bytes_raises_early(self) -> None:
         buf = io.BytesIO()

@@ -27,7 +27,7 @@ format:
 lint:
 	python -m ufmt check $(SOURCES)
 	python -m flake8 $(SOURCES)
-	python -m checkdeps --allow-names keke keke
+	python -m checkdeps --allow-names keke,psutil keke
 	mypy --strict --install-types --non-interactive keke
 
 .PHONY: release
