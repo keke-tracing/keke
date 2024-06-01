@@ -23,6 +23,7 @@ from queue import SimpleQueue
 from typing import (
     Any,
     Callable,
+    Final,
     cast,
     Dict,
     Generator,
@@ -71,7 +72,7 @@ class TraceOutput:
             # not for writing.
             file.write("")  # if this raises, check your file mode
 
-        self.output = file
+        self.output: Final[Optional[IO[str]]] = file
         self.close_output_file = close_output_file
         self.queue: "SimpleQueue[Optional[Dict[Any, Any]]]" = SimpleQueue()
 
@@ -135,7 +136,7 @@ class TraceOutput:
 
     def __enter__(self) -> None:
         if self.output is None:
-            return self
+            return
         self.output.write("[\n")
         self._writer = threading.Thread(target=self.writer)
         self._writer.start()
@@ -183,6 +184,7 @@ class TraceOutput:
             )
 
     def writer(self) -> None:
+        assert self.output is not None
         while True:
             item = self.queue.get()
             if item is None:  # Cheap shutdown sentinel
@@ -230,16 +232,15 @@ def kmark(name: str, cat: str = "mark", scope: str = Scope.THREAD) -> None:
 
 @contextmanager
 def kev(name: str, cat: str = "dur", **kwargs: Any) -> Generator[None, None, None]:
-    enabled = False
     t = get_tracer()
+    t0 = None
     if t is not None:
-        enabled = True
         t0 = to_microseconds(t.clock())
 
     try:
         yield
     finally:
-        if enabled:
+        if t0 is not None:
             assert t is not None
             t1 = to_microseconds(t.clock())
             ev = {
