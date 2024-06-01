@@ -57,3 +57,19 @@ jobs:
         run: make test
       - name: Lint
         run: make lint
+  
+  keke-types:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set Up Python
+        uses: actions/setup-python@v5
+      - name: Set Up Virtualenv
+        run: |
+          python -m pip install --upgrade pip
+          make venv
+          echo "$PWD/.venv/bin" >> $GITHUB_PATH
+      - uses: jakebailey/pyright-action@v2
+        with:
+          version: PATH
