@@ -52,7 +52,7 @@ def to_microseconds(s: float) -> float:
 class TraceOutput:
     def __init__(
         self,
-        file: IO[str],
+        file: Optional[IO[str]],
         # These sort key substrings are neat and work in chrome://tracing but
         # notably do _not_ work in perfetto when using json input.
         # https://groups.google.com/g/perfetto-dev/c/zOe_Y2FxGGk
