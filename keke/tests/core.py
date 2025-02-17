@@ -26,7 +26,7 @@ class TraceOutputTest(unittest.TestCase):
             with kev("name2_here", "cat_here"):
                 n = 125.5
 
-        events = json.loads(f.getvalue())
+        events = [ev for ev in json.loads(f.getvalue()) if ev.get("cat") != "gc"]
         self.assertEqual(5, len(events))
 
         # 0 = thread_name
@@ -90,7 +90,7 @@ class TraceOutputTest(unittest.TestCase):
             tracer = ktrace("a[0]", shortname="short")(func)
             self.assertEqual((["foo", "bar"], 1, 2), tracer(["foo", "bar"]))
 
-        events = json.loads(f.getvalue())
+        events = [ev for ev in json.loads(f.getvalue()) if ev.get("cat") != "gc"]
 
         # first call
         self.assertEqual(4, events[2]["pid"])
