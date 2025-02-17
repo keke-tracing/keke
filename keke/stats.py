@@ -33,9 +33,10 @@ def _cpu_stats_thread(delay: float) -> None:
             ts = time.time()
             process_time = time.process_time()
             if prev_ts is not None:
+                assert prev_process_time is not None
                 keke.kcount(
                     "proc_cpu_pct",
-                    100 * (process_time - prev_process_time) / (ts - prev_ts),
+                    int(100 * (process_time - prev_process_time) / (ts - prev_ts)),
                 )
 
             prev_ts = ts
