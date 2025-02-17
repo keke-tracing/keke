@@ -6,6 +6,8 @@ but making it easier to log higher-level information about what threads are
 doing.
 """
 
+from __future__ import annotations
+
 try:
     from ._version import __version__
 except ImportError:  # pragma: no cover
@@ -27,6 +29,7 @@ from typing import (
     Dict,
     Generator,
     IO,
+    NewType,
     Optional,
     Set,
     TypeVar,
@@ -35,6 +38,7 @@ from typing import (
 
 TRACER: "Optional[TraceOutput]" = None
 F = TypeVar("F", bound=Callable[..., Any])
+EVENT = NewType("EVENT", Dict[str, Any])
 
 
 def get_tracer() -> "Optional[TraceOutput]":
@@ -52,7 +56,7 @@ def to_microseconds(s: float) -> float:
 class TraceOutput:
     def __init__(
         self,
-        file: IO[str],
+        file: Optional[IO[str]],
         # These sort key substrings are neat and work in chrome://tracing but
         # notably do _not_ work in perfetto when using json input.
         # https://groups.google.com/g/perfetto-dev/c/zOe_Y2FxGGk
@@ -73,7 +77,7 @@ class TraceOutput:
 
         self.output = file
         self.close_output_file = close_output_file
-        self.queue: "SimpleQueue[Optional[Dict[Any, Any]]]" = SimpleQueue()
+        self.queue: "SimpleQueue[Optional[EVENT]]" = SimpleQueue()
 
         # There are two good reasons for overriding the pid value -- one is in
         # distributed systems, where the pid might get reused (or even reused
@@ -87,8 +91,8 @@ class TraceOutput:
         self._thread_name_output: Set[int] = set()
 
     def with_tid(
-        self, obj: Dict[str, Any], id: Optional[int] = None, name: Optional[str] = None
-    ) -> Dict[str, Any]:
+        self, obj: EVENT, id: Optional[int] = None, name: Optional[str] = None
+    ) -> EVENT:
         """
         Modifies obj in place (but also returns it) to add thread info and emit
         name metadata if necessary.  The optional `id` and `name` params are
@@ -110,32 +114,36 @@ class TraceOutput:
                 if k in name:
                     n = v
             self.queue.put(
-                {
-                    "pid": self.pid,
-                    "tid": id,
-                    "ts": 0,
-                    "ph": "M",
-                    "cat": "__metadata",
-                    "name": "thread_name",
-                    "args": {"name": name},
-                }
+                EVENT(
+                    {
+                        "pid": self.pid,
+                        "tid": id,
+                        "ts": 0,
+                        "ph": "M",
+                        "cat": "__metadata",
+                        "name": "thread_name",
+                        "args": {"name": name},
+                    }
+                )
             )
             self.queue.put(
-                {
-                    "pid": self.pid,
-                    "tid": id,
-                    "ts": 9,
-                    "ph": "M",
-                    "cat": "__metadata",
-                    "name": "thread_sort_index",
-                    "args": {"sort_index": n},
-                }
+                EVENT(
+                    {
+                        "pid": self.pid,
+                        "tid": id,
+                        "ts": 9,
+                        "ph": "M",
+                        "cat": "__metadata",
+                        "name": "thread_sort_index",
+                        "args": {"sort_index": n},
+                    }
+                )
             )
         return obj
 
     def __enter__(self) -> None:
         if self.output is None:
-            return self
+            return
         self.output.write("[\n")
         self._writer = threading.Thread(target=self.writer)
         self._writer.start()
@@ -170,19 +178,25 @@ class TraceOutput:
             # Ideally this would be recorded as an async event, but that doesn't
             # appear to work in Perfetto so we invent a fake thread.
             self.put(
-                {
-                    "cat": "gc",
-                    "name": "collect",
-                    "ph": "X",
-                    "tid": 0,
-                    "ts": self._gc_start,
-                    "dur": ts - self._gc_start,
-                    "args": info,
-                },
+                cast(
+                    EVENT,
+                    {
+                        "cat": "gc",
+                        "name": "collect",
+                        "ph": "X",
+                        "tid": 0,
+                        "ts": self._gc_start,
+                        "dur": ts - self._gc_start,
+                        "args": info,
+                    },
+                ),
                 False,
             )
 
     def writer(self) -> None:
+        # This thread should never get started unless output is a file
+        assert self.output is not None
+
         while True:
             item = self.queue.get()
             if item is None:  # Cheap shutdown sentinel
@@ -190,7 +204,7 @@ class TraceOutput:
             # TODO no whitespace inside
             self.output.write(json.dumps(item, separators=(",", ":")) + ",\n")
 
-    def put(self, obj: Dict[str, Any], with_tid: bool) -> None:
+    def put(self, obj: EVENT, with_tid: bool) -> None:
         if "pid" not in obj:
             obj["pid"] = self.pid
         if "ts" not in obj:
@@ -211,7 +225,7 @@ def kcount(name: str, value: Optional[int] = None, **kwargs: int) -> None:
 
     t = get_tracer()
     if t is not None:
-        t.put({"name": name, "ph": "C", "args": args}, False)
+        t.put(EVENT({"name": name, "ph": "C", "args": args}), False)
 
 
 # TODO this is not a real enum
@@ -225,7 +239,10 @@ def kmark(name: str, cat: str = "mark", scope: str = Scope.THREAD) -> None:
     # TODO "stack" record
     t = get_tracer()
     if t is not None:
-        t.put({"name": name, "cat": cat, "ph": "i", "s": scope}, scope == Scope.THREAD)
+        t.put(
+            EVENT({"name": name, "cat": cat, "ph": "i", "s": scope}),
+            scope == Scope.THREAD,
+        )
 
 
 @contextmanager
@@ -242,14 +259,16 @@ def kev(name: str, cat: str = "dur", **kwargs: Any) -> Generator[None, None, Non
         if enabled:
             assert t is not None
             t1 = to_microseconds(t.clock())
-            ev = {
-                "name": name,
-                "cat": cat,
-                "ph": "X",
-                "ts": t0,
-                "dur": t1 - t0,
-                "args": kwargs,
-            }
+            ev = EVENT(
+                {
+                    "name": name,
+                    "cat": cat,
+                    "ph": "X",
+                    "ts": t0,
+                    "dur": t1 - t0,
+                    "args": kwargs,
+                }
+            )
             t.put(ev, True)
 
 
