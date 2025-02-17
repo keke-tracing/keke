@@ -48,7 +48,7 @@ def _cpu_stats_thread(delay: float) -> None:
 
 def get_fd_count() -> int:
     if sys.platform == "win32":
-        return psutil.Process().num_handles()
+        return psutil.Process().num_handles()  # type: ignore[no-any-return]
     elif sys.platform == "darwin":
         return len(os.listdir("/dev/fd"))
     elif sys.platform == "linux":
