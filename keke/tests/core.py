@@ -1,9 +1,20 @@
 import io
 import json
+import multiprocessing
+import os
+import threading
+import time
 import unittest
+from functools import partial
 from typing import Any
 
-from keke import kev, ktrace, TraceOutput
+from keke import (
+    _consume_multiprocessing_thread,
+    _setup_multiprocessing,
+    kev,
+    ktrace,
+    TraceOutput,
+)
 
 
 class NonclosingStringIO(io.StringIO):
@@ -133,3 +144,41 @@ class TraceOutputTest(unittest.TestCase):
             with kev("name_here", "cat_here", arg=1):
                 pass
         json.loads(buf.getvalue())
+
+
+@ktrace("x")
+def _func_in_another_process(x) -> None:
+    return x
+
+
+class MultiprocessingTest(unittest.TestCase):
+    def test_we_get_events_from_child(self):
+        f = NonclosingStringIO()
+
+        spawn_context = multiprocessing.get_context("spawn")
+        q = spawn_context.Queue()
+        my_thread = threading.Thread(
+            target=partial(_consume_multiprocessing_thread, q), daemon=True
+        )
+        my_thread.start()
+
+        with spawn_context.Pool(
+            processes=1, initializer=partial(_setup_multiprocessing, q)
+        ) as pool:
+            # daemon because we don't have any way to stop once it's started yet...
+            with TraceOutput(file=f, pid=4, clock=lambda: 10):  # chosen by dice roll
+                result = pool.apply(_func_in_another_process, (2,))
+                self.assertEqual(2, result)
+                # Some sort of dummy thing to give the worker thread time to do
+                # its marshalling...
+                result = pool.apply(time.sleep, (0.1,))
+
+        events = [ev for ev in json.loads(f.getvalue()) if ev.get("cat") != "gc"]
+        for e in events:
+            if e.get("name") == "_func_in_another_process":
+                self.assertEqual(e["args"], {"x": "2"})
+                break
+        else:
+            for e in events:
+                print(e)
+            self.fail("No call to _func_in_another_process found")
