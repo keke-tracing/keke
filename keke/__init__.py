@@ -266,7 +266,7 @@ def kev(name: str, cat: str = "dur", **kwargs: Any) -> Generator[None, None, Non
                     "ph": "X",
                     "ts": t0,
                     "dur": t1 - t0,
-                    "args": kwargs,
+                    "args": {k: str(v) for k, v in kwargs.items()},
                 }
             )
             t.put(ev, True)
