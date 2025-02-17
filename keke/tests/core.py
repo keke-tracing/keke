@@ -1,7 +1,8 @@
 import io
 import json
+import time
 import unittest
-from typing import Any
+from typing import Any, Generator
 
 from keke import kev, ktrace, TraceOutput
 
@@ -133,3 +134,35 @@ class TraceOutputTest(unittest.TestCase):
             with kev("name_here", "cat_here", arg=1):
                 pass
         json.loads(buf.getvalue())
+
+    def test_ktrace_generator(self) -> None:
+        @ktrace()
+        def _uniquely_named_generator() -> Generator[int, None, None]:
+            yield 1
+            yield 2
+
+        f = NonclosingStringIO()
+
+        with TraceOutput(file=f, pid=4, clock=lambda: 10):  # chosen by dice roll
+            g = _uniquely_named_generator()
+            next(g)
+            next(g)
+            time.sleep(0.1)  # :(
+            assert "_uniquely_named_generator" not in f.getvalue()
+
+            with self.assertRaises(StopIteration):
+                next(g)
+            time.sleep(0.1)  # :(
+            assert "_uniquely_named_generator" in f.getvalue()
+
+        events = [ev for ev in json.loads(f.getvalue()) if ev.get("cat") != "gc"]
+        for e in events:
+            if (
+                e.get("name")
+                == "TraceOutputTest.test_ktrace_generator.<locals>._uniquely_named_generator"
+            ):
+                break
+        else:
+            for e in events:
+                print(e)
+            self.fail()
