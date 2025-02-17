@@ -20,7 +20,7 @@ import threading
 import time
 from contextlib import contextmanager
 from functools import wraps
-from inspect import signature
+from inspect import isasyncgenfunction, iscoroutine, isgeneratorfunction, signature
 from queue import SimpleQueue
 from typing import (
     Any,
@@ -287,11 +287,7 @@ def ktrace(*trace_args: str, shortname: Union[str, bool] = False) -> Callable[[F
         else:
             name = func.__qualname__
 
-        @wraps(func)
-        def dec(*args: Any, **kwargs: Any) -> Any:
-            t = get_tracer()
-            if t is None:
-                return func(*args, **kwargs)
+        def _get_params(*args: Any, **kwargs: Any) -> Dict[str, str]:
 
             bound = sig.bind(*args, **kwargs)
             bound.apply_defaults()
@@ -302,11 +298,38 @@ def ktrace(*trace_args: str, shortname: Union[str, bool] = False) -> Callable[[F
                 except Exception as e:
                     return repr(e)
 
-            params = {k: safe_get(k) for k in trace_args}
-            with kev(name, **params):
-                return func(*args, **kwargs)
+            return {k: safe_get(k) for k in trace_args}
 
-        return cast(F, dec)
+        if iscoroutine(func):
+
+            @wraps(func)
+            async def dec(*args: Any, **kwargs: Any) -> Any:
+                with kev(name, **_get_params(*args, **kwargs)):
+                    await func(*args, **kwargs)
+
+        elif isasyncgenfunction(func):
+
+            @wraps(func)
+            async def dec(*args: Any, **kwargs: Any) -> Any:
+                with kev(name, **_get_params(*args, **kwargs)):
+                    async for item in func(*args, **kwargs):
+                        yield item
+
+        elif isgeneratorfunction(func):
+
+            @wraps(func)
+            def dec(*args: Any, **kwargs: Any) -> Any:
+                with kev(name, **_get_params(*args, **kwargs)):
+                    yield from func(*args, **kwargs)
+
+        else:
+
+            @wraps(func)
+            def dec(*args: Any, **kwargs: Any) -> Any:
+                with kev(name, **_get_params(*args, **kwargs)):
+                    return func(*args, **kwargs)
+
+        return cast(F, dec)  # type: ignore[has-type]
 
     return inner
 
