@@ -15,6 +15,7 @@ except ImportError:  # pragma: no cover
 
 import gc
 import json
+import multiprocessing
 import os
 import threading
 import time
@@ -124,7 +125,7 @@ class TraceOutput:
                         "name": "thread_name",
                         "args": {"name": name},
                     }
-                )
+                ),
             )
             self.queue.put(
                 EVENT(
@@ -137,7 +138,7 @@ class TraceOutput:
                         "name": "thread_sort_index",
                         "args": {"sort_index": n},
                     }
-                )
+                ),
             )
         return obj
 
@@ -212,6 +213,47 @@ class TraceOutput:
         if with_tid:
             obj = self.with_tid(obj)
         self.queue.put(obj)
+
+
+def _consume_multiprocessing_thread(q: multiprocessing.Queue[EVENT]) -> None:
+    while True:
+        item = q.get()
+        t = get_tracer()
+        if t:
+            t.put(item, with_tid=False)
+
+
+def _setup_multiprocessing(q: multiprocessing.Queue[EVENT]) -> None:
+    ChildProcessOutput(q).__enter__()
+    # Because there's a `writer` thread in the child, and that thread can get
+    # killed during process shutdown, we sometimes don't get the last event(s).
+    #
+    # We could try to be clever with finalizers to call __exit__ but this is a
+    # lot of trouble, and this works most of the time.
+
+
+class ChildProcessOutput(TraceOutput):
+    def __init__(
+        self,
+        queue: multiprocessing.Queue[EVENT],
+        pid: Optional[int] = None,
+        clock: Optional[Callable[[], float]] = None,
+    ) -> None:
+        self.queue = queue  # type: ignore[assignment]
+        self.pid = pid or os.getpid()
+        self.clock = clock or time.monotonic
+        self.enabled = True
+        # hacks
+        self._thread_sortkeys = {}
+        self._thread_name_output: Set[int] = set()
+
+    def __enter__(self) -> None:
+        global TRACER
+        TRACER = self
+
+    def __exit__(self, *unused_args: Any) -> None:
+        global TRACER
+        TRACER = None
 
 
 def kcount(name: str, value: Optional[int] = None, **kwargs: int) -> None:
