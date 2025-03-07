@@ -44,18 +44,15 @@ The easiest way to not-enable is call `TraceOutput(file=None)` which will do not
 
 # Processes, or "how to get to distributed tracing"
 
-This approach avoids all magic.
+The simplest thing, if you want to avoid all magic, is set an environment
+variable in the child process asking it nicely to store its trace in a known
+place, then merge all those files at the end.
 
-If you're calling another (trace-aware) program, then the simplest thing to do
-is come up with a unique name and pass that to the child in argv, then attempt
-to merge that yourself once it's done.
-
-If you're doing something like fork/spawn to continue python work, then the
-parent can control basic information (like the tmpdir to write to) and the child
-can open a unique file with its pid.
-
-If you're doing something more distributed, you might come up with a guid and
-pass that to the child instead, for the child to tag it for later log uploading.
+If you control the initializer (say, with a multiprocessing.Pool or
+concurrent.futures.ProcessPool you are in charge of), then you can also start a
+thread and send events over a pipe.  See `test_we_get_events_from_child` for
+some ideas, but this does require a background thread in the parent (and
+probably gets unwieldy with children-of-children).
 
 # What's with the name
 

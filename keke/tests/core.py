@@ -1,7 +1,6 @@
 import io
 import json
 import multiprocessing
-import os
 import threading
 import time
 import unittest
@@ -184,12 +183,12 @@ class TraceOutputTest(unittest.TestCase):
 
 
 @ktrace("x")
-def _func_in_another_process(x) -> None:
+def _func_in_another_process(x: Any) -> Any:
     return x
 
 
 class MultiprocessingTest(unittest.TestCase):
-    def test_we_get_events_from_child(self):
+    def test_we_get_events_from_child(self) -> None:
         f = NonclosingStringIO()
 
         spawn_context = multiprocessing.get_context("spawn")
