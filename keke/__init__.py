@@ -18,9 +18,15 @@ import json
 import os
 import threading
 import time
+import weakref
 from contextlib import contextmanager
 from functools import wraps
-from inspect import isasyncgenfunction, iscoroutine, isgeneratorfunction, signature
+from inspect import (
+    isasyncgenfunction,
+    iscoroutinefunction,
+    isgeneratorfunction,
+    signature,
+)
 from queue import SimpleQueue
 from typing import (
     Any,
@@ -51,6 +57,19 @@ def get_tracer() -> "Optional[TraceOutput]":
 
 def to_microseconds(s: float) -> float:
     return s * 1_000_000
+
+
+class _NullIO:
+    """Writable text sink that silently discards all output."""
+
+    def write(self, s: str) -> int:
+        return len(s)
+
+    def flush(self) -> None:
+        pass
+
+    def close(self) -> None:
+        pass
 
 
 class TraceOutput:
@@ -89,6 +108,8 @@ class TraceOutput:
 
         self._thread_sortkeys = thread_sortkeys
         self._thread_name_output: Set[int] = set()
+        self._taps: weakref.WeakSet[IO[str]] = weakref.WeakSet()
+        self._taps_lock = threading.Lock()
 
     def with_tid(
         self, obj: EVENT, id: Optional[int] = None, name: Optional[str] = None
@@ -107,12 +128,12 @@ class TraceOutput:
 
         if id not in self._thread_name_output:
             self._thread_name_output.add(id)
-            n = 0  # TODO rethink?
             if name is None:
                 name = threading.current_thread().name
-            for k, v in self._thread_sortkeys.items():
-                if k in name:
-                    n = v
+            # Use native_id as sort_index so threads appear in creation order.
+            # _thread_sortkeys is kept for API compatibility but no longer used;
+            # it never worked in Perfetto (see class docstring comment).
+            n = id
             self.queue.put(
                 EVENT(
                     {
@@ -152,6 +173,34 @@ class TraceOutput:
         TRACER = self
         gc.callbacks.append(self._gc_callback)
 
+    def _add_tap(self, tap: Any) -> None:
+        """Register a writable text tap that receives JSONL events.
+
+        Attempts to set the tap's underlying fd non-blocking so the writer
+        thread never stalls waiting for a slow consumer.  If a write fails
+        with BlockingIOError the event is silently dropped but the tap stays
+        registered.  Any other OSError or ValueError permanently removes the
+        tap.
+
+        The caller is responsible for ensuring the tap is already open (i.e.
+        the open() call itself must not block before calling _add_tap).
+        """
+        try:
+            import fcntl
+
+            fd = tap.fileno()
+            flags = fcntl.fcntl(fd, fcntl.F_GETFL)
+            fcntl.fcntl(fd, fcntl.F_SETFL, flags | os.O_NONBLOCK)
+        except Exception:
+            pass  # in-memory objects (StringIO, BytesIO) or unavailable fcntl
+        with self._taps_lock:
+            self._taps.add(tap)
+
+    def _remove_tap(self, tap: Any) -> None:
+        """Deregister a previously registered tap."""
+        with self._taps_lock:
+            self._taps.discard(tap)
+
     def __exit__(self, *unused_args: Any) -> None:
         if self.output is None:
             return
@@ -159,13 +208,21 @@ class TraceOutput:
         self.enabled = False
         global TRACER
         TRACER = None
+        with self._taps_lock:
+            taps = list(self._taps)
+        for tap in taps:
+            try:
+                tap.close()
+            except Exception:
+                pass
         self.queue.put(None)
         self._writer.join()
-        self.output.write("{}]\n")
-        if self.close_output_file:
-            # prevents accidental reuse that produces invalid json, but you can
-            # disable if it's e.g. a StringIO that you want to read back
-            self.output.close()
+        if self.output is not None:
+            self.output.write("{}]\n")
+            if self.close_output_file:
+                # prevents accidental reuse that produces invalid json, but you can
+                # disable if it's e.g. a StringIO that you want to read back
+                self.output.close()
 
     def _gc_callback(self, phase: str, info: Dict[str, int]) -> None:
         # TODO We'd like to use begin/end async events, but those don't appear
@@ -177,6 +234,18 @@ class TraceOutput:
         else:
             # Ideally this would be recorded as an async event, but that doesn't
             # appear to work in Perfetto so we invent a fake thread.
+            if 0 not in self._thread_name_output:
+                self._thread_name_output.add(0)
+                self.queue.put(EVENT({
+                    "pid": self.pid, "tid": 0, "ts": 0,
+                    "ph": "M", "cat": "__metadata",
+                    "name": "thread_name", "args": {"name": "GC"},
+                }))
+                self.queue.put(EVENT({
+                    "pid": self.pid, "tid": 0, "ts": 9,
+                    "ph": "M", "cat": "__metadata",
+                    "name": "thread_sort_index", "args": {"sort_index": -1},
+                }))
             self.put(
                 cast(
                     EVENT,
@@ -194,15 +263,35 @@ class TraceOutput:
             )
 
     def writer(self) -> None:
-        # This thread should never get started unless output is a file
         assert self.output is not None
-
         while True:
             item = self.queue.get()
             if item is None:  # Cheap shutdown sentinel
                 break
             # TODO no whitespace inside
-            self.output.write(json.dumps(item, separators=(",", ":")) + ",\n")
+            serialized = json.dumps(item, separators=(",", ":"))
+            self.output.write(serialized + ",\n")
+            if self._taps:
+                line = serialized + "\n"
+                with self._taps_lock:
+                    taps = list(self._taps)
+                dead = []
+                for tap in taps:
+                    try:
+                        tap.write(line)
+                        tap.flush()
+                    except BlockingIOError:
+                        pass  # tap fd is full; drop this event, keep the tap
+                    except (OSError, ValueError):
+                        dead.append(tap)  # tap is closed/gone; remove it
+                if dead:
+                    with self._taps_lock:
+                        for tap in dead:
+                            self._taps.discard(tap)
+                            try:
+                                tap.close()
+                            except Exception:
+                                pass
 
     def put(self, obj: EVENT, with_tid: bool) -> None:
         if "pid" not in obj:
@@ -246,7 +335,9 @@ def kmark(name: str, cat: str = "mark", scope: str = Scope.THREAD) -> None:
 
 
 @contextmanager
-def kev(name: str, cat: str = "dur", **kwargs: Any) -> Generator[None, None, None]:
+def kev(
+    name: str, cat: str = "dur", min_us: int = 0, **kwargs: Any
+) -> Generator[None, None, None]:
     enabled = False
     t = get_tracer()
     if t is not None:
@@ -259,20 +350,23 @@ def kev(name: str, cat: str = "dur", **kwargs: Any) -> Generator[None, None, Non
         if enabled:
             assert t is not None
             t1 = to_microseconds(t.clock())
-            ev = EVENT(
-                {
-                    "name": name,
-                    "cat": cat,
-                    "ph": "X",
-                    "ts": t0,
-                    "dur": t1 - t0,
-                    "args": {k: str(v) for k, v in kwargs.items()},
-                }
-            )
-            t.put(ev, True)
+            if t1 - t0 >= min_us:
+                ev = EVENT(
+                    {
+                        "name": name,
+                        "cat": cat,
+                        "ph": "X",
+                        "ts": t0,
+                        "dur": t1 - t0,
+                        "args": {k: str(v) for k, v in kwargs.items()},
+                    }
+                )
+                t.put(ev, True)
 
 
-def ktrace(*trace_args: str, shortname: Union[str, bool] = False) -> Callable[[F], F]:
+def ktrace(
+    *trace_args: str, shortname: Union[str, bool] = False, min_us: int = 0
+) -> Callable[[F], F]:
     if trace_args and callable(trace_args[0]):
         raise TypeError(
             "This is a decorator that always takes args, to avoid confusion. Use empty parens."
@@ -300,18 +394,18 @@ def ktrace(*trace_args: str, shortname: Union[str, bool] = False) -> Callable[[F
 
             return {k: safe_get(k) for k in trace_args}
 
-        if iscoroutine(func):
+        if iscoroutinefunction(func):
 
             @wraps(func)
             async def dec(*args: Any, **kwargs: Any) -> Any:
-                with kev(name, **_get_params(*args, **kwargs)):
+                with kev(name, min_us=min_us, **_get_params(*args, **kwargs)):
                     await func(*args, **kwargs)
 
         elif isasyncgenfunction(func):
 
             @wraps(func)
             async def dec(*args: Any, **kwargs: Any) -> Any:
-                with kev(name, **_get_params(*args, **kwargs)):
+                with kev(name, min_us=min_us, **_get_params(*args, **kwargs)):
                     async for item in func(*args, **kwargs):
                         yield item
 
@@ -319,17 +413,17 @@ def ktrace(*trace_args: str, shortname: Union[str, bool] = False) -> Callable[[F
 
             @wraps(func)
             def dec(*args: Any, **kwargs: Any) -> Any:
-                with kev(name, **_get_params(*args, **kwargs)):
+                with kev(name, min_us=min_us, **_get_params(*args, **kwargs)):
                     yield from func(*args, **kwargs)
 
         else:
 
             @wraps(func)
             def dec(*args: Any, **kwargs: Any) -> Any:
-                with kev(name, **_get_params(*args, **kwargs)):
+                with kev(name, min_us=min_us, **_get_params(*args, **kwargs)):
                     return func(*args, **kwargs)
 
-        return cast(F, dec)  # type: ignore[has-type]
+        return cast(F, dec)
 
     return inner
 

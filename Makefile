@@ -14,9 +14,18 @@ venv:
 setup:
 	python -m pip install -Ue .[dev,test]
 
+# Memory: Linux supports ulimit -v (virtual), macOS doesn't.
+# Wall-clock: perl alarm(30) works on both platforms.
+ifeq ($(shell uname),Linux)
+    MEM_LIMIT := ulimit -v 2097152 &&
+else
+    MEM_LIMIT :=
+endif
+SAFETY := $(MEM_LIMIT) perl -e 'alarm(30); exec @ARGV or die' --
+
 .PHONY: test
 test:
-	python -m coverage run -m keke.tests $(TESTOPTS)
+	$(SAFETY) python -m coverage run -m keke.tests $(TESTOPTS)
 	python -m coverage report
 
 .PHONY: format
