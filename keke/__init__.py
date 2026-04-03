@@ -236,16 +236,32 @@ class TraceOutput:
             # appear to work in Perfetto so we invent a fake thread.
             if 0 not in self._thread_name_output:
                 self._thread_name_output.add(0)
-                self.queue.put(EVENT({
-                    "pid": self.pid, "tid": 0, "ts": 0,
-                    "ph": "M", "cat": "__metadata",
-                    "name": "thread_name", "args": {"name": "GC"},
-                }))
-                self.queue.put(EVENT({
-                    "pid": self.pid, "tid": 0, "ts": 9,
-                    "ph": "M", "cat": "__metadata",
-                    "name": "thread_sort_index", "args": {"sort_index": -1},
-                }))
+                self.queue.put(
+                    EVENT(
+                        {
+                            "pid": self.pid,
+                            "tid": 0,
+                            "ts": 0,
+                            "ph": "M",
+                            "cat": "__metadata",
+                            "name": "thread_name",
+                            "args": {"name": "GC"},
+                        }
+                    )
+                )
+                self.queue.put(
+                    EVENT(
+                        {
+                            "pid": self.pid,
+                            "tid": 0,
+                            "ts": 9,
+                            "ph": "M",
+                            "cat": "__metadata",
+                            "name": "thread_sort_index",
+                            "args": {"sort_index": -1},
+                        }
+                    )
+                )
             self.put(
                 cast(
                     EVENT,

@@ -10,7 +10,7 @@ import unittest
 from typing import Any, Dict
 
 from keke import TraceOutput
-from keke.wrap import AlreadyWrapped, WrappedLock, wrap_all, wrap_lock, restore_all
+from keke.wrap import AlreadyWrapped, restore_all, wrap_all, wrap_lock, WrappedLock
 
 
 class NonclosingStringIO(io.StringIO):
