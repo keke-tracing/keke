@@ -186,11 +186,11 @@ class TraceOutput:
         the open() call itself must not block before calling _add_tap).
         """
         try:
-            import fcntl
+            import fcntl  # type: ignore[import,unused-ignore]
 
             fd = tap.fileno()
-            flags = fcntl.fcntl(fd, fcntl.F_GETFL)
-            fcntl.fcntl(fd, fcntl.F_SETFL, flags | os.O_NONBLOCK)
+            flags = fcntl.fcntl(fd, fcntl.F_GETFL)  # type: ignore[attr-defined,unused-ignore]
+            fcntl.fcntl(fd, fcntl.F_SETFL, flags | os.O_NONBLOCK)  # type: ignore[attr-defined,unused-ignore]
         except Exception:
             pass  # in-memory objects (StringIO, BytesIO) or unavailable fcntl
         with self._taps_lock:

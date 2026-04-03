@@ -152,10 +152,10 @@ class TapForwardingTest(unittest.TestCase):
         tap = os.fdopen(w, "w")
         try:
             t._add_tap(tap)
-            import fcntl
+            import fcntl  # type: ignore[import,unused-ignore]
 
-            flags = fcntl.fcntl(tap.fileno(), fcntl.F_GETFL)
-            self.assertTrue(flags & os.O_NONBLOCK)
+            flags = fcntl.fcntl(tap.fileno(), fcntl.F_GETFL)  # type: ignore[attr-defined,unused-ignore]
+            self.assertTrue(flags & os.O_NONBLOCK)  # type: ignore[attr-defined,unused-ignore]
         except (ImportError, io.UnsupportedOperation):
             pass  # fcntl not available on this platform
         finally:
