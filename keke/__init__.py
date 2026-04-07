@@ -130,10 +130,12 @@ class TraceOutput:
             self._thread_name_output.add(id)
             if name is None:
                 name = threading.current_thread().name
-            # Use native_id as sort_index so threads appear in creation order.
+            # Scale native_id by 10 for sort_index so that companion rows (e.g.
+            # GIL state rows from zap-trace) can slot in at native_id*10-1 and
+            # still appear immediately above this thread without colliding.
             # _thread_sortkeys is kept for API compatibility but no longer used;
             # it never worked in Perfetto (see class docstring comment).
-            n = id
+            n = id * 10
             self.queue.put(
                 EVENT(
                     {
