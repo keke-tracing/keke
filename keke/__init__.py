@@ -234,13 +234,17 @@ class TraceOutput:
         else:
             # Ideally this would be recorded as an async event, but that doesn't
             # appear to work in Perfetto so we invent a fake thread.
-            if 0 not in self._thread_name_output:
-                self._thread_name_output.add(0)
+            # GC uses tid=-1 so that tid == sort_index == -1.
+            # Perfetto ignores thread_sort_index from legacy JSON and sorts tracks
+            # by TID value; using -1 ensures GC appears above all real threads
+            # (whose TIDs are positive native_ids) in both viewers.
+            if -1 not in self._thread_name_output:
+                self._thread_name_output.add(-1)
                 self.queue.put(
                     EVENT(
                         {
                             "pid": self.pid,
-                            "tid": 0,
+                            "tid": -1,
                             "ts": 0,
                             "ph": "M",
                             "cat": "__metadata",
@@ -253,7 +257,7 @@ class TraceOutput:
                     EVENT(
                         {
                             "pid": self.pid,
-                            "tid": 0,
+                            "tid": -1,
                             "ts": 9,
                             "ph": "M",
                             "cat": "__metadata",
@@ -269,7 +273,7 @@ class TraceOutput:
                         "cat": "gc",
                         "name": "collect",
                         "ph": "X",
-                        "tid": 0,
+                        "tid": -1,
                         "ts": self._gc_start,
                         "dur": ts - self._gc_start,
                         "args": info,
