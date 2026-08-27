@@ -16,7 +16,7 @@ setup:
 
 .PHONY: test
 test:
-	python -m coverage run -m keke.tests $(TESTOPTS)
+	python -m coverage run -m pytest $(TESTOPTS)
 	python -m coverage report
 
 .PHONY: format
