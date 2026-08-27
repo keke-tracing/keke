@@ -4,6 +4,8 @@ import time
 import unittest
 from typing import Any, Generator
 
+import pytest
+
 from keke import kev, ktrace, TraceOutput
 
 
@@ -140,6 +142,7 @@ class TraceOutputTest(unittest.TestCase):
                 pass
         json.loads(buf.getvalue())
 
+    @pytest.mark.xslowtrace
     def test_ktrace_generator(self) -> None:
         @ktrace()
         def _uniquely_named_generator() -> Generator[int, None, None]:
