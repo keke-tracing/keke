@@ -16,7 +16,7 @@ setup:
 
 .PHONY: test
 test:
-	python -m coverage run -m keke.tests $(TESTOPTS)
+	python -m coverage run -m pytest $(TESTOPTS)
 	python -m coverage report
 
 .PHONY: format
@@ -27,7 +27,7 @@ format:
 lint:
 	python -m ufmt check $(SOURCES)
 	python -m flake8 $(SOURCES)
-	python -m checkdeps --allow-names keke,psutil keke
+	python -m checkdeps --allow-names keke,psutil,pytest keke
 	mypy --strict --install-types --non-interactive keke
 
 .PHONY: release
